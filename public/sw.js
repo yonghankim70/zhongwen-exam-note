@@ -1,4 +1,4 @@
-const CACHE_NAME = "zhongwen-exam-note-v1";
+const CACHE_NAME = "zhongwen-exam-note-v3-gemini";
 const APP_SHELL = ["/", "/manifest.webmanifest", "/icon.svg"];
 
 self.addEventListener("install", (event) => {

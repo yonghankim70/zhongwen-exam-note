@@ -87,6 +87,8 @@ type BeforeInstallPromptEvent = Event & {
 
 const emptyText =
   "사진 인식이 애매할 때는 여기에 중국어 문장을 직접 입력해도 됩니다.";
+const maxUploadBytes = 3.2 * 1024 * 1024;
+const maxImageEdge = 1600;
 
 export default function Home() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -178,20 +180,18 @@ export default function Home() {
     setIsAnalyzing(true);
     setError(null);
 
-    const formData = new FormData();
-    if (selectedFile) {
-      formData.append("image", selectedFile);
-    }
-    formData.append("manualText", manualText.trim());
-
     try {
+      const formData = new FormData();
+      if (selectedFile) {
+        formData.append("image", await prepareImageForUpload(selectedFile));
+      }
+      formData.append("manualText", manualText.trim());
+
       const response = await fetch("/api/analyze", {
         method: "POST",
         body: formData,
       });
-      const payload = (await response.json()) as
-        | { result: AnalysisResult }
-        | { error: string };
+      const payload = await readAnalyzeResponse(response);
 
       if (!response.ok || "error" in payload) {
         throw new Error("error" in payload ? payload.error : "분석에 실패했습니다.");
@@ -229,6 +229,9 @@ export default function Home() {
             <h1 className="mt-1 text-2xl font-bold tracking-normal sm:text-3xl">
               중문시험노트
             </h1>
+            <p className="mt-1 text-xs font-semibold text-[#0f766e]">
+              Gemini 버전 적용 완료
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <span
@@ -310,8 +313,8 @@ export default function Home() {
             </label>
 
             <div className="rounded-lg border border-[#f1c2bd] bg-[#fff7f5] p-3 text-sm text-[#7a271a]">
-              1차 버전은 분석할 때 인터넷이 필요합니다. 한 번 열린 앱 화면은
-              휴대폰에 설치해 다시 열 수 있습니다.
+              Gemini API로 분석합니다. 분석할 때 인터넷이 필요하고, 한 번 열린
+              앱 화면은 휴대폰에 설치해 다시 열 수 있습니다.
             </div>
 
             {error ? (
@@ -365,6 +368,117 @@ export default function Home() {
       </div>
     </main>
   );
+}
+
+async function readAnalyzeResponse(response: Response) {
+  const contentType = response.headers.get("content-type") ?? "";
+
+  if (contentType.includes("application/json")) {
+    return (await response.json()) as
+      | { result: AnalysisResult }
+      | { error: string };
+  }
+
+  const text = await response.text();
+  if (/request entity too large/i.test(text)) {
+    return {
+      error:
+        "사진 용량이 너무 큽니다. 앱이 자동 압축을 시도했지만, 더 가까이 찍거나 사진을 한 번 잘라서 다시 올려 주세요.",
+    };
+  }
+
+  return {
+    error:
+      text.slice(0, 160) ||
+      `서버가 예상과 다른 응답을 보냈습니다. 상태 코드: ${response.status}`,
+  };
+}
+
+async function prepareImageForUpload(file: File) {
+  if (!file.type.startsWith("image/")) {
+    throw new Error("이미지 파일만 업로드할 수 있습니다.");
+  }
+
+  if (file.size <= maxUploadBytes) {
+    return file;
+  }
+
+  const dataUrl = await readFileAsDataUrl(file);
+  const image = await loadImage(dataUrl);
+  let edge = maxImageEdge;
+  let quality = 0.82;
+  let compressed = await renderCompressedImage(image, edge, quality);
+
+  while (compressed.size > maxUploadBytes && quality > 0.52) {
+    quality -= 0.1;
+    compressed = await renderCompressedImage(image, edge, quality);
+  }
+
+  while (compressed.size > maxUploadBytes && edge > 900) {
+    edge -= 220;
+    compressed = await renderCompressedImage(image, edge, 0.66);
+  }
+
+  if (compressed.size > maxUploadBytes) {
+    throw new Error("사진 용량이 너무 큽니다. 사진을 조금 잘라서 다시 올려 주세요.");
+  }
+
+  return new File([compressed], "chinese-note-photo.jpg", {
+    type: "image/jpeg",
+    lastModified: Date.now(),
+  });
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("사진을 읽지 못했습니다."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImage(src: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("사진을 불러오지 못했습니다."));
+    image.src = src;
+  });
+}
+
+function renderCompressedImage(
+  image: HTMLImageElement,
+  maxEdge: number,
+  quality: number
+) {
+  const scale = Math.min(1, maxEdge / Math.max(image.naturalWidth, image.naturalHeight));
+  const width = Math.max(1, Math.round(image.naturalWidth * scale));
+  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    throw new Error("사진 압축을 준비하지 못했습니다.");
+  }
+
+  context.drawImage(image, 0, 0, width, height);
+
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) {
+          resolve(blob);
+        } else {
+          reject(new Error("사진 압축에 실패했습니다."));
+        }
+      },
+      "image/jpeg",
+      quality
+    );
+  });
 }
 
 function EmptyResult() {
