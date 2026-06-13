@@ -310,8 +310,8 @@ export default function Home() {
             </label>
 
             <div className="rounded-lg border border-[#f1c2bd] bg-[#fff7f5] p-3 text-sm text-[#7a271a]">
-              1차 버전은 분석할 때 인터넷이 필요합니다. 한 번 열린 앱 화면은
-              휴대폰에 설치해 다시 열 수 있습니다.
+              Gemini API로 분석합니다. 분석할 때 인터넷이 필요하고, 한 번 열린
+              앱 화면은 휴대폰에 설치해 다시 열 수 있습니다.
             </div>
 
             {error ? (
