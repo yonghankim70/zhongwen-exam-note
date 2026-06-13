@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 type GeminiPayload = {
   candidates?: Array<{
+    finishReason?: string;
     content?: {
       parts?: Array<{ text?: string }>;
     };
@@ -72,7 +73,8 @@ export async function POST(request: Request) {
           },
         ],
         generationConfig: {
-          maxOutputTokens: 6500,
+          temperature: 0.2,
+          maxOutputTokens: 8192,
           responseMimeType: "application/json",
         },
       }),
@@ -97,10 +99,25 @@ export async function POST(request: Request) {
   }
 
   try {
-    return NextResponse.json({ result: JSON.parse(stripJsonFence(outputText)) });
+    const result = parseAnalysisJson(outputText);
+    if (!result) {
+      throw new Error("Invalid Gemini JSON");
+    }
+    return NextResponse.json({ result });
   } catch {
+    const finishReason = payload.candidates?.[0]?.finishReason;
+    console.error("Gemini JSON parse failed", {
+      finishReason,
+      outputLength: outputText.length,
+    });
+
     return NextResponse.json(
-      { error: "분석 결과 형식이 올바르지 않습니다. 다시 시도해 주세요." },
+      {
+        error:
+          finishReason === "MAX_TOKENS"
+            ? "분석 내용이 너무 길어 중간에 잘렸습니다. 문장을 조금 짧게 입력하거나 다시 시도해 주세요."
+            : "Gemini 답변 형식을 앱이 읽지 못했습니다. 다시 한 번 눌러 주세요.",
+      },
       { status: 502 }
     );
   }
@@ -111,7 +128,9 @@ function buildPrompt(manualText: string, hasImage: boolean) {
 너는 한국의 중어중문학과 학생을 돕는 중국어 시험 대비 튜터다.
 
 ${hasImage ? "첨부된 사진에서 중국어 문장을 정확히 읽고 분석해라." : "사용자가 입력한 중국어 문장을 분석해라."}
-반드시 JSON만 출력해라. 설명 문장, 마크다운, 코드블록은 절대 붙이지 마라.
+반드시 JSON 객체 하나만 출력해라. 설명 문장, 마크다운, 코드블록은 절대 붙이지 마라.
+모든 문자열은 큰따옴표를 사용하고, 마지막 쉼표는 넣지 마라.
+각 설명은 짧게 써라. 한 항목은 보통 1문장으로 제한해라.
 
 JSON 구조:
 {
@@ -188,12 +207,12 @@ JSON 구조:
 - 결과는 한국어로 설명한다.
 - 병음은 성조 표시를 포함한다.
 - 한글 발음은 보조 정보로만 적는다.
-- 단어별 설명은 핵심 단어 3~10개로 한다.
-- 상황별 의미는 3~5개로 한다.
-- 실제 대화 예시는 2~3개로 한다.
-- 비슷한 표현과 자주 쓰는 패턴은 각각 3~6개로 한다.
+- 단어별 설명은 핵심 단어 3~7개로 한다.
+- 상황별 의미는 3개로 한다.
+- 실제 대화 예시는 2개로 한다.
+- 비슷한 표현과 자주 쓰는 패턴은 각각 3개로 한다.
 - 정리는 5~7개 항목으로 한다.
-- 시험 포인트는 빈칸 채우기, 한국어 해석, 유사 표현 구별, 어순 배열, 상황에 맞는 표현 선택, 품사와 문장 성분, 문법 구조 설명 중심으로 3~5개를 작성한다.
+- 시험 포인트는 빈칸 채우기, 한국어 해석, 유사 표현 구별, 어순 배열, 상황에 맞는 표현 선택, 품사와 문장 성분, 문법 구조 설명 중심으로 3개를 작성한다.
 
 사용자가 직접 입력한 문장:
 ${manualText || "(직접 입력 없음)"}
@@ -225,4 +244,73 @@ function stripJsonFence(text: string) {
     .replace(/^```\s*/i, "")
     .replace(/\s*```$/i, "")
     .trim();
+}
+
+function parseAnalysisJson(text: string) {
+  const cleaned = stripJsonFence(text);
+  const candidates = [
+    cleaned,
+    extractJsonObject(cleaned),
+    stripTrailingCommas(cleaned),
+    stripTrailingCommas(extractJsonObject(cleaned) ?? ""),
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // Try the next possible JSON shape.
+    }
+  }
+
+  return null;
+}
+
+function extractJsonObject(text: string) {
+  const start = text.indexOf("{");
+  if (start === -1) {
+    return null;
+  }
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) {
+      continue;
+    }
+
+    if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return text.slice(start, index + 1);
+      }
+    }
+  }
+
+  return null;
+}
+
+function stripTrailingCommas(text: string) {
+  return text.replace(/,\s*([}\]])/g, "$1");
 }
