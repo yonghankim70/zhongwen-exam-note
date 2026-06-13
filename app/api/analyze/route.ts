@@ -12,6 +12,136 @@ type GeminiPayload = {
   };
 };
 
+const analysisSchema = {
+  type: "object",
+  properties: {
+    title: { type: "string" },
+    detectedText: { type: "string" },
+    wordExplanations: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          chinese: { type: "string" },
+          pinyin: { type: "string" },
+          koreanPronunciation: { type: "string" },
+          meaning: { type: "string" },
+        },
+        required: ["chinese", "pinyin", "koreanPronunciation", "meaning"],
+      },
+    },
+    overallMeaning: {
+      type: "object",
+      properties: {
+        literalKorean: { type: "string" },
+        naturalKorean: { type: "string" },
+        coreMeaning: { type: "string" },
+        nuance: { type: "string" },
+      },
+      required: ["literalKorean", "naturalKorean", "coreMeaning", "nuance"],
+    },
+    scenarioMeanings: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          situation: { type: "string" },
+          meaning: { type: "string" },
+          example: { type: "string" },
+        },
+        required: ["situation", "meaning", "example"],
+      },
+    },
+    dialogueExamples: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          title: { type: "string" },
+          lines: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                speaker: { type: "string" },
+                chinese: { type: "string" },
+                pinyin: { type: "string" },
+                korean: { type: "string" },
+              },
+              required: ["speaker", "chinese", "pinyin", "korean"],
+            },
+          },
+        },
+        required: ["title", "lines"],
+      },
+    },
+    similarExpressions: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          chinese: { type: "string" },
+          pinyin: { type: "string" },
+          koreanPronunciation: { type: "string" },
+          difference: { type: "string" },
+        },
+        required: ["chinese", "pinyin", "koreanPronunciation", "difference"],
+      },
+    },
+    commonPatterns: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          chinese: { type: "string" },
+          pinyin: { type: "string" },
+          korean: { type: "string" },
+          usage: { type: "string" },
+        },
+        required: ["chinese", "pinyin", "korean", "usage"],
+      },
+    },
+    summary: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          label: { type: "string" },
+          value: { type: "string" },
+        },
+        required: ["label", "value"],
+      },
+    },
+    examTrends: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          point: { type: "string" },
+          reason: { type: "string" },
+          sampleQuestion: { type: "string" },
+          answerHint: { type: "string" },
+        },
+        required: ["point", "reason", "sampleQuestion", "answerHint"],
+      },
+    },
+    finalTakeaway: { type: "string" },
+  },
+  required: [
+    "title",
+    "detectedText",
+    "wordExplanations",
+    "overallMeaning",
+    "scenarioMeanings",
+    "dialogueExamples",
+    "similarExpressions",
+    "commonPatterns",
+    "summary",
+    "examTrends",
+    "finalTakeaway",
+  ],
+};
+
 export async function POST(request: Request) {
   const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
   const model = process.env.GEMINI_MODEL ?? "gemini-3.5-flash";
@@ -73,9 +203,7 @@ export async function POST(request: Request) {
           },
         ],
         generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 8192,
-          responseMimeType: "application/json",
+          ...buildGenerationConfig(),
         },
       }),
     }
@@ -98,11 +226,12 @@ export async function POST(request: Request) {
     );
   }
 
+  const result =
+    parseAnalysisJson(outputText) ??
+    (await repairGeminiJson(apiKey, model, outputText, manualText)) ??
+    buildFallbackAnalysis(manualText, outputText);
+
   try {
-    const result = parseAnalysisJson(outputText);
-    if (!result) {
-      throw new Error("Invalid Gemini JSON");
-    }
     return NextResponse.json({ result });
   } catch {
     const finishReason = payload.candidates?.[0]?.finishReason;
@@ -219,6 +348,66 @@ ${manualText || "(직접 입력 없음)"}
 `.trim();
 }
 
+function buildGenerationConfig() {
+  return {
+    temperature: 0.1,
+    maxOutputTokens: 8192,
+    responseFormat: {
+      text: {
+        mimeType: "application/json",
+        schema: analysisSchema,
+      },
+    },
+  };
+}
+
+async function repairGeminiJson(
+  apiKey: string,
+  model: string,
+  outputText: string,
+  manualText: string
+) {
+  const repairPrompt = `
+아래 Gemini 응답을 앱에서 읽을 수 있는 JSON 객체 하나로 다시 작성해라.
+설명 문장과 코드블록은 빼고 JSON만 출력해라.
+사용자가 직접 입력한 문장: ${manualText || "(직접 입력 없음)"}
+
+원래 응답:
+${outputText.slice(0, 12000)}
+`.trim();
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "x-goog-api-key": apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [{ text: repairPrompt }],
+            },
+          ],
+          generationConfig: buildGenerationConfig(),
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = (await response.json()) as GeminiPayload;
+    const repairText = extractGeminiOutputText(payload);
+    return repairText ? parseAnalysisJson(repairText) : null;
+  } catch {
+    return null;
+  }
+}
+
 async function fileToGeminiInlineData(file: File) {
   const mimeType = file.type || "image/jpeg";
   const buffer = await file.arrayBuffer();
@@ -313,4 +502,87 @@ function extractJsonObject(text: string) {
 
 function stripTrailingCommas(text: string) {
   return text.replace(/,\s*([}\]])/g, "$1");
+}
+
+function buildFallbackAnalysis(manualText: string, outputText: string) {
+  const detectedText =
+    manualText || extractChineseSnippet(outputText) || "사진 속 중국어 문장";
+  const shortRaw =
+    outputText.trim().slice(0, 700) ||
+    "Gemini가 사진은 처리했지만 정해진 표 형식으로 답하지 않았습니다.";
+
+  return {
+    title: `${detectedText} 분석`,
+    detectedText,
+    wordExplanations: [
+      {
+        chinese: detectedText,
+        pinyin: "사진 인식 후 다시 시도하면 병음이 더 정확해집니다.",
+        koreanPronunciation: "보조 발음 확인 필요",
+        meaning: "사진에서 인식한 중국어 표현입니다.",
+      },
+    ],
+    overallMeaning: {
+      literalKorean: shortRaw,
+      naturalKorean:
+        "Gemini 응답 형식이 흔들려 기본 분석으로 표시했습니다.",
+      coreMeaning: "같은 사진으로 한 번 더 누르거나 문장을 직접 입력하면 더 안정적입니다.",
+      nuance: "사진 속 글자가 작거나 화면 반사가 있으면 형식 오류가 생길 수 있습니다.",
+    },
+    scenarioMeanings: [
+      {
+        situation: "사진 분석",
+        meaning: "사진 속 중국어를 바탕으로 시험노트를 만들려고 했습니다.",
+        example: detectedText,
+      },
+    ],
+    dialogueExamples: [
+      {
+        title: "기본 확인",
+        lines: [
+          {
+            speaker: "A",
+            chinese: detectedText,
+            pinyin: "",
+            korean: "사진 속 중국어 문장입니다.",
+          },
+        ],
+      },
+    ],
+    similarExpressions: [
+      {
+        chinese: detectedText,
+        pinyin: "",
+        koreanPronunciation: "",
+        difference: "정확한 비교는 문장을 직접 입력하면 더 잘 나옵니다.",
+      },
+    ],
+    commonPatterns: [
+      {
+        chinese: detectedText,
+        pinyin: "",
+        korean: "사진 속 표현",
+        usage: "시험 문장 분석",
+      },
+    ],
+    summary: [
+      { label: "상태", value: "Gemini 응답을 기본 형식으로 표시했습니다." },
+      { label: "해결", value: "같은 사진으로 다시 누르거나 직접 입력을 함께 쓰면 좋습니다." },
+    ],
+    examTrends: [
+      {
+        point: "한국어 해석",
+        reason: "사진 속 중국어 문장은 해석 문제로 자주 바뀔 수 있습니다.",
+        sampleQuestion: "다음 문장을 자연스러운 한국어로 옮기시오.",
+        answerHint: "직역보다 실제 상황에 맞는 자연스러운 뜻을 적습니다.",
+      },
+    ],
+    finalTakeaway:
+      "사진 분석은 되었지만 형식이 흔들렸습니다. 다시 시도하거나 문장을 직접 입력하면 더 자세한 노트가 나옵니다.",
+  };
+}
+
+function extractChineseSnippet(text: string) {
+  const matches = text.match(/[\u3400-\u9fff][\u3400-\u9fff，。？！！？、\s]*/g);
+  return matches?.[0]?.trim() ?? "";
 }
