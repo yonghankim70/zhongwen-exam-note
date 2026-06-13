@@ -161,6 +161,26 @@ button {
   white-space: nowrap;
 }
 
+.crop-controls {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.crop-controls button {
+  min-height: 44px;
+  border: 1px solid #b8c7c0;
+  border-radius: 8px;
+  background: #f7fbf8;
+  color: #16342f;
+  font-size: 0.92rem;
+  font-weight: 900;
+}
+
+.crop-controls button:active {
+  transform: translateY(1px);
+}
+
 .section-number {
   display: inline-flex;
   height: 1.75rem;
@@ -189,8 +209,8 @@ button {
 
 .speaker-button {
   display: inline-flex;
-  height: 2rem;
-  width: 2rem;
+  height: 2.35rem;
+  width: 2.35rem;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
@@ -201,8 +221,8 @@ button {
 }
 
 .speaker-button svg {
-  height: 1.05rem;
-  width: 1.05rem;
+  height: 1.2rem;
+  width: 1.2rem;
   fill: currentColor;
 }
 

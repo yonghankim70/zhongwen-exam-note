@@ -1,6 +1,10 @@
 "use client";
 
-import type { FormEvent, PointerEvent as ReactPointerEvent } from "react";
+import type {
+  FormEvent,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+} from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type WordExplanation = {
@@ -104,6 +108,11 @@ const emptyText =
   "사진 인식이 애매할 때는 여기에 중국어 문장을 직접 입력해도 됩니다.";
 const maxUploadBytes = 3.2 * 1024 * 1024;
 const maxImageEdge = 1600;
+const brushPaddingX = 0.08;
+const brushPaddingY = 0.055;
+const cropStep = 0.04;
+
+let activeUtterance: SpeechSynthesisUtterance | null = null;
 
 export default function Home() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -273,12 +282,7 @@ export default function Home() {
     event.currentTarget.setPointerCapture(event.pointerId);
     const point = getCropPoint(event);
     setIsSelectingCrop(true);
-    setCropSelection({
-      startX: point.x,
-      startY: point.y,
-      endX: point.x,
-      endY: point.y,
-    });
+    setCropSelection(rectToSelection(getBrushRect(point.x, point.y)));
   }
 
   function handleCropMove(event: ReactPointerEvent<HTMLDivElement>) {
@@ -289,7 +293,7 @@ export default function Home() {
     event.preventDefault();
     const point = getCropPoint(event);
     setCropSelection((current) =>
-      current ? { ...current, endX: point.x, endY: point.y } : current
+      rectToSelection(mergeCrops(getNormalizedCrop(current), getBrushRect(point.x, point.y)))
     );
   }
 
@@ -305,15 +309,50 @@ export default function Home() {
 
     const point = getCropPoint(event);
     setCropSelection((current) => {
-      if (!current) {
-        return current;
-      }
-
-      const next = { ...current, endX: point.x, endY: point.y };
+      const next = rectToSelection(
+        mergeCrops(getNormalizedCrop(current), getBrushRect(point.x, point.y))
+      );
       const nextCrop = getNormalizedCrop(next);
       return nextCrop && isUsableCrop(nextCrop) ? next : null;
     });
     setIsSelectingCrop(false);
+  }
+
+  function updateCropRect(getNext: (crop: CropRect) => CropRect) {
+    setCropSelection((current) => {
+      const crop = getNormalizedCrop(current);
+      if (!crop) {
+        return rectToSelection({ x: 0.1, y: 0.35, width: 0.8, height: 0.22 });
+      }
+
+      return rectToSelection(normalizeCropRect(getNext(crop)));
+    });
+  }
+
+  function expandCrop() {
+    updateCropRect((crop) => ({
+      x: crop.x - cropStep,
+      y: crop.y - cropStep,
+      width: crop.width + cropStep * 2,
+      height: crop.height + cropStep * 2,
+    }));
+  }
+
+  function shrinkCrop() {
+    updateCropRect((crop) => ({
+      x: crop.x + cropStep,
+      y: crop.y + cropStep,
+      width: crop.width - cropStep * 2,
+      height: crop.height - cropStep * 2,
+    }));
+  }
+
+  function moveCrop(dx: number, dy: number) {
+    updateCropRect((crop) => ({
+      ...crop,
+      x: crop.x + dx,
+      y: crop.y + dy,
+    }));
   }
 
   return (
@@ -379,7 +418,7 @@ export default function Home() {
               {previewUrl ? (
                 <div className="space-y-2">
                   <p className="text-sm font-semibold text-[#0f766e]">
-                    중국어 글씨 부분을 손가락으로 드래그하세요. 선택한 부분만 분석합니다.
+                    중국어 글씨 위를 손가락으로 문지르세요. 선택한 부분만 분석합니다.
                   </p>
                   <div
                     className="crop-zone"
@@ -414,13 +453,35 @@ export default function Home() {
                     )}
                   </div>
                   {hasCropSelection ? (
-                    <button
-                      className="secondary-button w-full"
-                      onClick={() => setCropSelection(null)}
-                      type="button"
-                    >
-                      선택 해제하고 전체 사진 분석
-                    </button>
+                    <div className="space-y-2">
+                      <div className="crop-controls" aria-label="선택 영역 조절">
+                        <button type="button" onClick={() => moveCrop(0, -cropStep)}>
+                          위
+                        </button>
+                        <button type="button" onClick={expandCrop}>
+                          넓게
+                        </button>
+                        <button type="button" onClick={() => moveCrop(0, cropStep)}>
+                          아래
+                        </button>
+                        <button type="button" onClick={() => moveCrop(-cropStep, 0)}>
+                          왼쪽
+                        </button>
+                        <button type="button" onClick={shrinkCrop}>
+                          좁게
+                        </button>
+                        <button type="button" onClick={() => moveCrop(cropStep, 0)}>
+                          오른쪽
+                        </button>
+                      </div>
+                      <button
+                        className="secondary-button w-full"
+                        onClick={() => setCropSelection(null)}
+                        type="button"
+                      >
+                        선택 해제하고 전체 사진 분석
+                      </button>
+                    </div>
                   ) : null}
                 </div>
               ) : (
@@ -675,8 +736,61 @@ function getNormalizedCrop(selection: CropSelection | null): CropRect | null {
   return { x, y, width, height };
 }
 
+function getBrushRect(x: number, y: number): CropRect {
+  return normalizeCropRect({
+    x: x - brushPaddingX,
+    y: y - brushPaddingY,
+    width: brushPaddingX * 2,
+    height: brushPaddingY * 2,
+  });
+}
+
+function mergeCrops(first: CropRect | null, second: CropRect | null): CropRect | null {
+  if (!first) {
+    return second;
+  }
+  if (!second) {
+    return first;
+  }
+
+  const left = Math.min(first.x, second.x);
+  const top = Math.min(first.y, second.y);
+  const right = Math.max(first.x + first.width, second.x + second.width);
+  const bottom = Math.max(first.y + first.height, second.y + second.height);
+
+  return normalizeCropRect({
+    x: left,
+    y: top,
+    width: right - left,
+    height: bottom - top,
+  });
+}
+
+function normalizeCropRect(crop: CropRect): CropRect {
+  const width = clamp(crop.width, 0.06, 1);
+  const height = clamp(crop.height, 0.06, 1);
+  const x = clamp(crop.x, 0, 1 - width);
+  const y = clamp(crop.y, 0, 1 - height);
+
+  return { x, y, width, height };
+}
+
+function rectToSelection(crop: CropRect | null): CropSelection | null {
+  if (!crop) {
+    return null;
+  }
+
+  const next = normalizeCropRect(crop);
+  return {
+    startX: next.x,
+    startY: next.y,
+    endX: next.x + next.width,
+    endY: next.y + next.height,
+  };
+}
+
 function isUsableCrop(crop: CropRect) {
-  return crop.width >= 0.04 && crop.height >= 0.04;
+  return crop.width >= 0.06 && crop.height >= 0.06;
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -899,7 +1013,7 @@ function NumberedSection({
   number,
   title,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
   number: string;
   title: string;
 }) {
@@ -926,13 +1040,29 @@ function ChineseText({ text }: { text: string }) {
 function SpeakButton({ text }: { text: string }) {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isSupported, setIsSupported] = useState(true);
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
 
   useEffect(() => {
-    setIsSupported(
-      typeof window !== "undefined" &&
-        "speechSynthesis" in window &&
-        "SpeechSynthesisUtterance" in window
-    );
+    if (
+      typeof window === "undefined" ||
+      !("speechSynthesis" in window) ||
+      !("SpeechSynthesisUtterance" in window)
+    ) {
+      setIsSupported(false);
+      return;
+    }
+
+    const loadVoices = () => {
+      setVoices(window.speechSynthesis.getVoices());
+    };
+
+    setIsSupported(true);
+    loadVoices();
+    window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
+
+    return () => {
+      window.speechSynthesis.removeEventListener("voiceschanged", loadVoices);
+    };
   }, []);
 
   function speak() {
@@ -945,18 +1075,55 @@ function SpeakButton({ text }: { text: string }) {
       return;
     }
 
-    window.speechSynthesis.cancel();
+    const cleanText = text.trim();
+    if (!cleanText) {
+      return;
+    }
 
-    const utterance = new SpeechSynthesisUtterance(text);
+    const synth = window.speechSynthesis;
+    if (isSpeaking) {
+      synth.cancel();
+      activeUtterance = null;
+      setIsSpeaking(false);
+      return;
+    }
+
+    synth.cancel();
+
+    const latestVoices = synth.getVoices();
+    if (latestVoices.length) {
+      setVoices(latestVoices);
+    }
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
     utterance.lang = "zh-CN";
-    utterance.rate = 0.86;
+    utterance.rate = 0.82;
     utterance.pitch = 1;
-    utterance.voice = pickMandarinVoice(window.speechSynthesis.getVoices());
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
+    utterance.volume = 1;
+    utterance.voice = pickMandarinVoice(latestVoices.length ? latestVoices : voices);
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = () => {
+      if (activeUtterance === utterance) {
+        activeUtterance = null;
+        setIsSpeaking(false);
+      }
+    };
+    utterance.onerror = () => {
+      if (activeUtterance === utterance) {
+        activeUtterance = null;
+        setIsSpeaking(false);
+      }
+    };
 
+    activeUtterance = utterance;
     setIsSpeaking(true);
-    window.speechSynthesis.speak(utterance);
+    synth.speak(utterance);
+
+    window.setTimeout(() => {
+      if (activeUtterance === utterance) {
+        synth.resume();
+      }
+    }, 120);
   }
 
   return (
