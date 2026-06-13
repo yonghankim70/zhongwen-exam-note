@@ -1,0 +1,278 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f7f8f4;
+  --foreground: #18201d;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR",
+    system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR",
+    system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background:
+    linear-gradient(180deg, rgba(15, 118, 110, 0.08), transparent 240px),
+    var(--background);
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.primary-button,
+.secondary-button,
+.tool-button {
+  min-height: 44px;
+  border-radius: 8px;
+  font-weight: 800;
+  transition:
+    transform 120ms ease,
+    opacity 120ms ease,
+    background-color 120ms ease;
+}
+
+.primary-button {
+  width: 100%;
+  background: #0f766e;
+  color: white;
+  padding: 0.85rem 1rem;
+}
+
+.primary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.primary-button:not(:disabled):active,
+.secondary-button:active,
+.tool-button:active,
+.saved-note:active {
+  transform: translateY(1px);
+}
+
+.secondary-button,
+.tool-button {
+  border: 1px solid #b8c7c0;
+  background: #f7fbf8;
+  color: #16342f;
+  padding: 0.55rem 0.8rem;
+}
+
+.tool-button {
+  min-height: 36px;
+  padding: 0.4rem 0.7rem;
+}
+
+.camera-zone {
+  display: flex;
+  min-height: 260px;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1.5px dashed #8bb8ad;
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(15, 118, 110, 0.08), rgba(214, 79, 73, 0.06)),
+    #fbfcfa;
+  color: #496158;
+  text-align: center;
+  font-weight: 800;
+  line-height: 1.7;
+}
+
+.section-number {
+  display: inline-flex;
+  height: 1.75rem;
+  width: 1.75rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: #0f766e;
+  color: white;
+  font-size: 0.9rem;
+}
+
+.chinese-text {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 0.4rem;
+  vertical-align: middle;
+}
+
+.chinese-text span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.speaker-button {
+  display: inline-flex;
+  height: 2rem;
+  width: 2rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #9ebbb3;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #0f766e;
+}
+
+.speaker-button svg {
+  height: 1.05rem;
+  width: 1.05rem;
+  fill: currentColor;
+}
+
+.speaker-button svg path:nth-child(n + 2) {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.speaker-button.is-speaking {
+  background: #0f766e;
+  color: #ffffff;
+}
+
+.speaker-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.responsive-table {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid #d8ded5;
+  border-radius: 8px;
+}
+
+table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  background: white;
+}
+
+th,
+td {
+  border-bottom: 1px solid #e4e9e1;
+  padding: 0.85rem;
+  text-align: left;
+  vertical-align: top;
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+th {
+  background: #f1f6f3;
+  color: #33443d;
+  font-weight: 800;
+}
+
+tbody tr:last-child th,
+tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.meaning-list {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.meaning-list div {
+  border: 1px solid #d8ded5;
+  border-radius: 8px;
+  background: #fbfcfa;
+  padding: 0.9rem;
+}
+
+.meaning-list dt {
+  margin-bottom: 0.35rem;
+  color: #0f766e;
+  font-size: 0.86rem;
+  font-weight: 900;
+}
+
+.meaning-list dd {
+  margin: 0;
+  line-height: 1.7;
+}
+
+.dialogue-block,
+.exam-point {
+  border: 1px solid #d8ded5;
+  border-radius: 8px;
+  background: #fbfcfa;
+  padding: 1rem;
+}
+
+.dialogue-block h4,
+.exam-point h4 {
+  margin: 0 0 0.7rem;
+  color: #0f4f4a;
+  font-weight: 900;
+}
+
+.dialogue-block p,
+.exam-point p {
+  margin: 0.65rem 0 0;
+  line-height: 1.75;
+}
+
+.dialogue-block span {
+  color: #5b665f;
+}
+
+.saved-note {
+  min-height: 86px;
+  border: 1px solid #d8ded5;
+  border-radius: 8px;
+  background: #fbfcfa;
+  padding: 0.85rem;
+  text-align: left;
+}
+
+.line-clamp-2 {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+@media (max-width: 640px) {
+  table {
+    min-width: 480px;
+  }
+
+  th,
+  td {
+    padding: 0.75rem;
+    font-size: 0.9rem;
+  }
+}

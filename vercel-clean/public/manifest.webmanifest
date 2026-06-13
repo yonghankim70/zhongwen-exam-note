@@ -1,0 +1,19 @@
+{
+  "name": "중문시험노트",
+  "short_name": "중문노트",
+  "description": "중국어 문장 사진을 시험 대비 학습 노트로 정리합니다.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f7f8f4",
+  "theme_color": "#0f766e",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
