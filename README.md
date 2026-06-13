@@ -20,11 +20,11 @@
 `.env.example`을 참고해서 환경변수를 설정합니다.
 
 ```bash
-OPENAI_API_KEY=sk-your-api-key
-OPENAI_MODEL=gpt-5.2
+GEMINI_API_KEY=your-gemini-api-key
+GEMINI_MODEL=gemini-3.5-flash
 ```
 
-배포 환경에서는 `OPENAI_API_KEY`를 서버 환경변수로 넣어야 합니다. 이 키는
+배포 환경에서는 `GEMINI_API_KEY`를 서버 환경변수로 넣어야 합니다. 이 키는
 브라우저에 노출되지 않습니다.
 
 ## 실행
@@ -47,8 +47,8 @@ Install Command: npm install
 환경변수에는 아래 값을 추가해야 사진 분석이 작동합니다.
 
 ```text
-OPENAI_API_KEY=본인의 OpenAI API 키
-OPENAI_MODEL=gpt-5.2
+GEMINI_API_KEY=본인의 Gemini API 키
+GEMINI_MODEL=gemini-3.5-flash
 ```
 
 ## 휴대폰 설치
