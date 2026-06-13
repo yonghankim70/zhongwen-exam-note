@@ -103,6 +103,64 @@ button {
   line-height: 1.7;
 }
 
+.crop-zone {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  border: 1.5px dashed #8bb8ad;
+  border-radius: 8px;
+  background: #fbfcfa;
+}
+
+.crop-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  -webkit-user-drag: none;
+}
+
+.crop-hint {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  border-radius: 8px;
+  background: rgba(15, 118, 110, 0.88);
+  color: white;
+  padding: 0.55rem 0.7rem;
+  font-size: 0.85rem;
+  font-weight: 900;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.crop-box {
+  position: absolute;
+  min-width: 34px;
+  min-height: 34px;
+  border: 3px solid #0f766e;
+  border-radius: 8px;
+  background: rgba(15, 118, 110, 0.16);
+  box-shadow:
+    0 0 0 9999px rgba(0, 0, 0, 0.28),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.75);
+  pointer-events: none;
+}
+
+.crop-box span {
+  position: absolute;
+  left: 0.4rem;
+  top: 0.4rem;
+  border-radius: 6px;
+  background: #0f766e;
+  color: white;
+  padding: 0.25rem 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
 .section-number {
   display: inline-flex;
   height: 1.75rem;

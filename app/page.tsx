@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import type { FormEvent, PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type WordExplanation = {
   chinese: string;
@@ -85,6 +86,20 @@ type BeforeInstallPromptEvent = Event & {
   userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
 };
 
+type CropSelection = {
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
+};
+
+type CropRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
 const emptyText =
   "사진 인식이 애매할 때는 여기에 중국어 문장을 직접 입력해도 됩니다.";
 const maxUploadBytes = 3.2 * 1024 * 1024;
@@ -99,9 +114,17 @@ export default function Home() {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [savedNotes, setSavedNotes] = useState<SavedNote[]>([]);
   const [isOnline, setIsOnline] = useState(true);
+  const [cropSelection, setCropSelection] = useState<CropSelection | null>(null);
+  const [isSelectingCrop, setIsSelectingCrop] = useState(false);
   const [installPrompt, setInstallPrompt] =
     useState<BeforeInstallPromptEvent | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const selectedCrop = useMemo(
+    () => getNormalizedCrop(cropSelection),
+    [cropSelection]
+  );
+  const hasCropSelection = Boolean(selectedCrop && isUsableCrop(selectedCrop));
 
   const canAnalyze = useMemo(() => {
     return Boolean(selectedFile || manualText.trim()) && !isAnalyzing && isOnline;
@@ -144,6 +167,7 @@ export default function Home() {
   useEffect(() => {
     if (!selectedFile) {
       setPreviewUrl(null);
+      setCropSelection(null);
       return;
     }
 
@@ -183,7 +207,13 @@ export default function Home() {
     try {
       const formData = new FormData();
       if (selectedFile) {
-        formData.append("image", await prepareImageForUpload(selectedFile));
+        formData.append(
+          "image",
+          await prepareImageForUpload(
+            selectedFile,
+            hasCropSelection ? selectedCrop : null
+          )
+        );
       }
       formData.append("manualText", manualText.trim());
 
@@ -218,6 +248,72 @@ export default function Home() {
     await installPrompt.prompt();
     await installPrompt.userChoice;
     setInstallPrompt(null);
+  }
+
+  function handleFileChange(file: File | null) {
+    setSelectedFile(file);
+    setCropSelection(null);
+    setError(null);
+  }
+
+  function getCropPoint(event: ReactPointerEvent<HTMLDivElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return {
+      x: clamp((event.clientX - rect.left) / rect.width, 0, 1),
+      y: clamp((event.clientY - rect.top) / rect.height, 0, 1),
+    };
+  }
+
+  function handleCropStart(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!previewUrl) {
+      return;
+    }
+
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const point = getCropPoint(event);
+    setIsSelectingCrop(true);
+    setCropSelection({
+      startX: point.x,
+      startY: point.y,
+      endX: point.x,
+      endY: point.y,
+    });
+  }
+
+  function handleCropMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!isSelectingCrop) {
+      return;
+    }
+
+    event.preventDefault();
+    const point = getCropPoint(event);
+    setCropSelection((current) =>
+      current ? { ...current, endX: point.x, endY: point.y } : current
+    );
+  }
+
+  function handleCropEnd(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!isSelectingCrop) {
+      return;
+    }
+
+    event.preventDefault();
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    const point = getCropPoint(event);
+    setCropSelection((current) => {
+      if (!current) {
+        return current;
+      }
+
+      const next = { ...current, endX: point.x, endY: point.y };
+      const nextCrop = getNormalizedCrop(next);
+      return nextCrop && isUsableCrop(nextCrop) ? next : null;
+    });
+    setIsSelectingCrop(false);
   }
 
   return (
@@ -275,31 +371,71 @@ export default function Home() {
                 className="hidden"
                 onChange={(event) => {
                   const file = event.target.files?.[0] ?? null;
-                  setSelectedFile(file);
+                  handleFileChange(file);
                 }}
                 type="file"
               />
 
-              <button
-                className="camera-zone"
-                onClick={() => fileInputRef.current?.click()}
-                type="button"
-              >
-                {previewUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    alt="선택한 중국어 문장 사진"
-                    className="h-full w-full object-cover"
-                    src={previewUrl}
-                  />
-                ) : (
+              {previewUrl ? (
+                <div className="space-y-2">
+                  <p className="text-sm font-semibold text-[#0f766e]">
+                    중국어 글씨 부분을 손가락으로 드래그하세요. 선택한 부분만 분석합니다.
+                  </p>
+                  <div
+                    className="crop-zone"
+                    onPointerCancel={handleCropEnd}
+                    onPointerDown={handleCropStart}
+                    onPointerMove={handleCropMove}
+                    onPointerUp={handleCropEnd}
+                    role="img"
+                    aria-label="분석할 중국어 글씨 영역 선택"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      alt="선택한 중국어 문장 사진"
+                      className="crop-image"
+                      draggable={false}
+                      src={previewUrl}
+                    />
+                    {selectedCrop ? (
+                      <div
+                        className="crop-box"
+                        style={{
+                          left: `${selectedCrop.x * 100}%`,
+                          top: `${selectedCrop.y * 100}%`,
+                          width: `${selectedCrop.width * 100}%`,
+                          height: `${selectedCrop.height * 100}%`,
+                        }}
+                      >
+                        <span>이 부분만 분석</span>
+                      </div>
+                    ) : (
+                      <div className="crop-hint">글씨 부분을 문질러 선택</div>
+                    )}
+                  </div>
+                  {hasCropSelection ? (
+                    <button
+                      className="secondary-button w-full"
+                      onClick={() => setCropSelection(null)}
+                      type="button"
+                    >
+                      선택 해제하고 전체 사진 분석
+                    </button>
+                  ) : null}
+                </div>
+              ) : (
+                <button
+                  className="camera-zone"
+                  onClick={() => fileInputRef.current?.click()}
+                  type="button"
+                >
                   <span>
                     카메라로 찍거나
                     <br />
                     중국어 문장 사진을 선택하세요
                   </span>
-                )}
-              </button>
+                </button>
+              )}
             </div>
 
             <label className="block space-y-2">
@@ -394,16 +530,22 @@ async function readAnalyzeResponse(response: Response) {
   };
 }
 
-async function prepareImageForUpload(file: File) {
+async function prepareImageForUpload(file: File, crop: CropRect | null) {
   if (!file.type.startsWith("image/")) {
     throw new Error("이미지 파일만 업로드할 수 있습니다.");
   }
 
-  if (file.size <= maxUploadBytes) {
-    return file;
+  let nextFile = file;
+
+  if (crop && isUsableCrop(crop)) {
+    nextFile = await cropImageFile(file, crop);
   }
 
-  const dataUrl = await readFileAsDataUrl(file);
+  if (nextFile.size <= maxUploadBytes) {
+    return nextFile;
+  }
+
+  const dataUrl = await readFileAsDataUrl(nextFile);
   const image = await loadImage(dataUrl);
   let edge = maxImageEdge;
   let quality = 0.82;
@@ -424,6 +566,41 @@ async function prepareImageForUpload(file: File) {
   }
 
   return new File([compressed], "chinese-note-photo.jpg", {
+    type: "image/jpeg",
+    lastModified: Date.now(),
+  });
+}
+
+async function cropImageFile(file: File, crop: CropRect) {
+  const dataUrl = await readFileAsDataUrl(file);
+  const image = await loadImage(dataUrl);
+  const sourceX = Math.round(image.naturalWidth * crop.x);
+  const sourceY = Math.round(image.naturalHeight * crop.y);
+  const sourceWidth = Math.max(1, Math.round(image.naturalWidth * crop.width));
+  const sourceHeight = Math.max(1, Math.round(image.naturalHeight * crop.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = sourceWidth;
+  canvas.height = sourceHeight;
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    throw new Error("선택한 영역을 자르지 못했습니다.");
+  }
+
+  context.drawImage(
+    image,
+    sourceX,
+    sourceY,
+    sourceWidth,
+    sourceHeight,
+    0,
+    0,
+    sourceWidth,
+    sourceHeight
+  );
+
+  const blob = await canvasToJpeg(canvas, 0.92);
+  return new File([blob], "selected-chinese-text.jpg", {
     type: "image/jpeg",
     lastModified: Date.now(),
   });
@@ -466,6 +643,10 @@ function renderCompressedImage(
 
   context.drawImage(image, 0, 0, width, height);
 
+  return canvasToJpeg(canvas, quality);
+}
+
+function canvasToJpeg(canvas: HTMLCanvasElement, quality: number) {
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
       (blob) => {
@@ -479,6 +660,27 @@ function renderCompressedImage(
       quality
     );
   });
+}
+
+function getNormalizedCrop(selection: CropSelection | null): CropRect | null {
+  if (!selection) {
+    return null;
+  }
+
+  const x = Math.min(selection.startX, selection.endX);
+  const y = Math.min(selection.startY, selection.endY);
+  const width = Math.abs(selection.endX - selection.startX);
+  const height = Math.abs(selection.endY - selection.startY);
+
+  return { x, y, width, height };
+}
+
+function isUsableCrop(crop: CropRect) {
+  return crop.width >= 0.04 && crop.height >= 0.04;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
 }
 
 function EmptyResult() {

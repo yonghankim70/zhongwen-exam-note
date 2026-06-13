@@ -12,136 +12,6 @@ type GeminiPayload = {
   };
 };
 
-const analysisSchema = {
-  type: "object",
-  properties: {
-    title: { type: "string" },
-    detectedText: { type: "string" },
-    wordExplanations: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          chinese: { type: "string" },
-          pinyin: { type: "string" },
-          koreanPronunciation: { type: "string" },
-          meaning: { type: "string" },
-        },
-        required: ["chinese", "pinyin", "koreanPronunciation", "meaning"],
-      },
-    },
-    overallMeaning: {
-      type: "object",
-      properties: {
-        literalKorean: { type: "string" },
-        naturalKorean: { type: "string" },
-        coreMeaning: { type: "string" },
-        nuance: { type: "string" },
-      },
-      required: ["literalKorean", "naturalKorean", "coreMeaning", "nuance"],
-    },
-    scenarioMeanings: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          situation: { type: "string" },
-          meaning: { type: "string" },
-          example: { type: "string" },
-        },
-        required: ["situation", "meaning", "example"],
-      },
-    },
-    dialogueExamples: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          title: { type: "string" },
-          lines: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                speaker: { type: "string" },
-                chinese: { type: "string" },
-                pinyin: { type: "string" },
-                korean: { type: "string" },
-              },
-              required: ["speaker", "chinese", "pinyin", "korean"],
-            },
-          },
-        },
-        required: ["title", "lines"],
-      },
-    },
-    similarExpressions: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          chinese: { type: "string" },
-          pinyin: { type: "string" },
-          koreanPronunciation: { type: "string" },
-          difference: { type: "string" },
-        },
-        required: ["chinese", "pinyin", "koreanPronunciation", "difference"],
-      },
-    },
-    commonPatterns: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          chinese: { type: "string" },
-          pinyin: { type: "string" },
-          korean: { type: "string" },
-          usage: { type: "string" },
-        },
-        required: ["chinese", "pinyin", "korean", "usage"],
-      },
-    },
-    summary: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          label: { type: "string" },
-          value: { type: "string" },
-        },
-        required: ["label", "value"],
-      },
-    },
-    examTrends: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          point: { type: "string" },
-          reason: { type: "string" },
-          sampleQuestion: { type: "string" },
-          answerHint: { type: "string" },
-        },
-        required: ["point", "reason", "sampleQuestion", "answerHint"],
-      },
-    },
-    finalTakeaway: { type: "string" },
-  },
-  required: [
-    "title",
-    "detectedText",
-    "wordExplanations",
-    "overallMeaning",
-    "scenarioMeanings",
-    "dialogueExamples",
-    "similarExpressions",
-    "commonPatterns",
-    "summary",
-    "examTrends",
-    "finalTakeaway",
-  ],
-};
-
 export async function POST(request: Request) {
   const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
   const model = process.env.GEMINI_MODEL ?? "gemini-3.5-flash";
@@ -203,7 +73,9 @@ export async function POST(request: Request) {
           },
         ],
         generationConfig: {
-          ...buildGenerationConfig(),
+          temperature: 0.1,
+          maxOutputTokens: 8192,
+          responseMimeType: "application/json",
         },
       }),
     }
@@ -226,10 +98,11 @@ export async function POST(request: Request) {
     );
   }
 
-  const result =
+  const rawResult =
     parseAnalysisJson(outputText) ??
     (await repairGeminiJson(apiKey, model, outputText, manualText)) ??
     buildFallbackAnalysis(manualText, outputText);
+  const result = normalizeAnalysisResult(rawResult, manualText, outputText);
 
   try {
     return NextResponse.json({ result });
@@ -352,12 +225,7 @@ function buildGenerationConfig() {
   return {
     temperature: 0.1,
     maxOutputTokens: 8192,
-    responseFormat: {
-      text: {
-        mimeType: "application/json",
-        schema: analysisSchema,
-      },
-    },
+    responseMimeType: "application/json",
   };
 }
 
@@ -502,6 +370,133 @@ function extractJsonObject(text: string) {
 
 function stripTrailingCommas(text: string) {
   return text.replace(/,\s*([}\]])/g, "$1");
+}
+
+function normalizeAnalysisResult(
+  rawResult: unknown,
+  manualText: string,
+  outputText: string
+) {
+  const fallback = buildFallbackAnalysis(manualText, outputText);
+  const source = isRecord(rawResult) ? rawResult : {};
+  const overallMeaning = isRecord(source.overallMeaning)
+    ? source.overallMeaning
+    : fallback.overallMeaning;
+
+  return {
+    title: asText(source.title, fallback.title),
+    detectedText: asText(source.detectedText, fallback.detectedText),
+    wordExplanations: asArray(source.wordExplanations, fallback.wordExplanations).map(
+      (item) => {
+        const row = isRecord(item) ? item : {};
+        return {
+          chinese: asText(row.chinese, fallback.detectedText),
+          pinyin: asText(row.pinyin, ""),
+          koreanPronunciation: asText(row.koreanPronunciation, ""),
+          meaning: asText(row.meaning, "뜻 확인 필요"),
+        };
+      }
+    ),
+    overallMeaning: {
+      literalKorean: asText(
+        overallMeaning.literalKorean,
+        fallback.overallMeaning.literalKorean
+      ),
+      naturalKorean: asText(
+        overallMeaning.naturalKorean,
+        fallback.overallMeaning.naturalKorean
+      ),
+      coreMeaning: asText(
+        overallMeaning.coreMeaning,
+        fallback.overallMeaning.coreMeaning
+      ),
+      nuance: asText(overallMeaning.nuance, fallback.overallMeaning.nuance),
+    },
+    scenarioMeanings: asArray(
+      source.scenarioMeanings,
+      fallback.scenarioMeanings
+    ).map((item) => {
+      const row = isRecord(item) ? item : {};
+      return {
+        situation: asText(row.situation, "기본 상황"),
+        meaning: asText(row.meaning, "의미 확인 필요"),
+        example: asText(row.example, fallback.detectedText),
+      };
+    }),
+    dialogueExamples: asArray(
+      source.dialogueExamples,
+      fallback.dialogueExamples
+    ).map((item) => {
+      const row = isRecord(item) ? item : {};
+      return {
+        title: asText(row.title, "대화 예시"),
+        lines: asArray(row.lines, fallback.dialogueExamples[0].lines).map((line) => {
+          const lineRow = isRecord(line) ? line : {};
+          return {
+            speaker: asText(lineRow.speaker, "A"),
+            chinese: asText(lineRow.chinese, fallback.detectedText),
+            pinyin: asText(lineRow.pinyin, ""),
+            korean: asText(lineRow.korean, "한국어 뜻 확인 필요"),
+          };
+        }),
+      };
+    }),
+    similarExpressions: asArray(
+      source.similarExpressions,
+      fallback.similarExpressions
+    ).map((item) => {
+      const row = isRecord(item) ? item : {};
+      return {
+        chinese: asText(row.chinese, fallback.detectedText),
+        pinyin: asText(row.pinyin, ""),
+        koreanPronunciation: asText(row.koreanPronunciation, ""),
+        difference: asText(row.difference, "차이점 확인 필요"),
+      };
+    }),
+    commonPatterns: asArray(source.commonPatterns, fallback.commonPatterns).map(
+      (item) => {
+        const row = isRecord(item) ? item : {};
+        return {
+          chinese: asText(row.chinese, fallback.detectedText),
+          pinyin: asText(row.pinyin, ""),
+          korean: asText(row.korean, "한국어 의미 확인 필요"),
+          usage: asText(row.usage, "사용 상황 확인 필요"),
+        };
+      }
+    ),
+    summary: asArray(source.summary, fallback.summary).map((item) => {
+      const row = isRecord(item) ? item : {};
+      return {
+        label: asText(row.label, "정리"),
+        value: asText(row.value, "내용 확인 필요"),
+      };
+    }),
+    examTrends: asArray(source.examTrends, fallback.examTrends).map((item) => {
+      const row = isRecord(item) ? item : {};
+      return {
+        point: asText(row.point, "시험 포인트"),
+        reason: asText(row.reason, "출제 가능성이 있습니다."),
+        sampleQuestion: asText(row.sampleQuestion, "다음 문장을 해석하시오."),
+        answerHint: asText(row.answerHint, "핵심 의미를 자연스럽게 적습니다."),
+      };
+    }),
+    finalTakeaway: asText(
+      source.finalTakeaway,
+      fallback.finalTakeaway
+    ),
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function asText(value: unknown, fallback: string) {
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+
+function asArray<T>(value: unknown, fallback: T[]): unknown[] {
+  return Array.isArray(value) && value.length ? value : fallback;
 }
 
 function buildFallbackAnalysis(manualText: string, outputText: string) {
