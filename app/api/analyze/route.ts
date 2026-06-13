@@ -1,10 +1,4 @@
-import { env } from "cloudflare:workers";
 import { NextResponse } from "next/server";
-
-type RuntimeEnv = {
-  OPENAI_API_KEY?: string;
-  OPENAI_MODEL?: string;
-};
 
 const analysisSchema = {
   type: "object",
@@ -147,10 +141,8 @@ const analysisSchema = {
 } as const;
 
 export async function POST(request: Request) {
-  const runtimeEnv = env as unknown as RuntimeEnv;
-  const processEnv = typeof process !== "undefined" ? process.env : {};
-  const apiKey = runtimeEnv.OPENAI_API_KEY ?? processEnv.OPENAI_API_KEY;
-  const model = runtimeEnv.OPENAI_MODEL ?? processEnv.OPENAI_MODEL ?? "gpt-5.2";
+  const apiKey = process.env.OPENAI_API_KEY;
+  const model = process.env.OPENAI_MODEL ?? "gpt-5.2";
 
   if (!apiKey) {
     return NextResponse.json(
@@ -290,16 +282,7 @@ async function fileToDataUrl(file: File) {
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer) {
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  const chunkSize = 0x8000;
-
-  for (let index = 0; index < bytes.length; index += chunkSize) {
-    const chunk = bytes.subarray(index, index + chunkSize);
-    binary += String.fromCharCode(...chunk);
-  }
-
-  return btoa(binary);
+  return Buffer.from(buffer).toString("base64");
 }
 
 function extractOutputText(payload: {

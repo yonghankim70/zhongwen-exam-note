@@ -33,6 +33,23 @@ npm install
 npm run dev
 ```
 
+## Vercel 배포
+
+GitHub에 올린 뒤 Vercel에서 프로젝트를 가져올 때 설정은 기본값을 쓰면 됩니다.
+
+```text
+Framework Preset: Next.js
+Build Command: npm run build
+Install Command: npm install
+```
+
+환경변수에는 아래 값을 추가해야 사진 분석이 작동합니다.
+
+```text
+OPENAI_API_KEY=본인의 OpenAI API 키
+OPENAI_MODEL=gpt-5.2
+```
+
 ## 휴대폰 설치
 
 1. 배포된 주소를 휴대폰 Chrome 또는 Safari에서 엽니다.
