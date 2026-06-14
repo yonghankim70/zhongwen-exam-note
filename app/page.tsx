@@ -111,6 +111,7 @@ const maxImageEdge = 1600;
 const brushPaddingX = 0.08;
 const brushPaddingY = 0.055;
 const cropStep = 0.04;
+const speechStopEvent = "zhongwen-speech-stop";
 
 let activeUtterance: SpeechSynthesisUtterance | null = null;
 let speechHelpShown = false;
@@ -275,7 +276,7 @@ export default function Home() {
   }
 
   function handleCropStart(event: ReactPointerEvent<HTMLDivElement>) {
-    if (!previewUrl) {
+    if (!previewUrl || hasCropSelection) {
       return;
     }
 
@@ -395,13 +396,22 @@ export default function Home() {
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="text-lg font-bold">사진 또는 문장</h2>
-                <button
-                  className="secondary-button"
-                  onClick={() => fileInputRef.current?.click()}
-                  type="button"
-                >
-                  사진 선택
-                </button>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    className="secondary-button"
+                    onClick={() => fileInputRef.current?.click()}
+                    type="button"
+                  >
+                    사진 선택
+                  </button>
+                  <button
+                    className="quick-submit-button"
+                    disabled={!canAnalyze}
+                    type="submit"
+                  >
+                    시험노트 만들기
+                  </button>
+                </div>
               </div>
 
               <input
@@ -446,12 +456,8 @@ export default function Home() {
                           width: `${selectedCrop.width * 100}%`,
                           height: `${selectedCrop.height * 100}%`,
                         }}
-                      >
-                        <span>이 부분만 분석</span>
-                      </div>
-                    ) : (
-                      <div className="crop-hint">글씨 부분을 문질러 선택</div>
-                    )}
+                      />
+                    ) : null}
                   </div>
                   {hasCropSelection ? (
                     <div className="space-y-2">
@@ -480,7 +486,7 @@ export default function Home() {
                         onClick={() => setCropSelection(null)}
                         type="button"
                       >
-                        선택 해제하고 전체 사진 분석
+                        다시 선택하기
                       </button>
                     </div>
                   ) : null}
@@ -1056,13 +1062,18 @@ function SpeakButton({ text }: { text: string }) {
     const loadVoices = () => {
       setVoices(window.speechSynthesis.getVoices());
     };
+    const handleSpeechStop = () => {
+      setIsSpeaking(false);
+    };
 
     setIsSupported(true);
     loadVoices();
     window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
+    window.addEventListener(speechStopEvent, handleSpeechStop);
 
     return () => {
       window.speechSynthesis.removeEventListener("voiceschanged", loadVoices);
+      window.removeEventListener(speechStopEvent, handleSpeechStop);
     };
   }, []);
 
@@ -1083,12 +1094,15 @@ function SpeakButton({ text }: { text: string }) {
 
     const synth = window.speechSynthesis;
     if (isSpeaking) {
-      synth.cancel();
       activeUtterance = null;
+      window.dispatchEvent(new Event(speechStopEvent));
+      synth.cancel();
       setIsSpeaking(false);
       return;
     }
 
+    activeUtterance = null;
+    window.dispatchEvent(new Event(speechStopEvent));
     synth.cancel();
     synth.resume();
 
@@ -1122,8 +1136,8 @@ function SpeakButton({ text }: { text: string }) {
       if (activeUtterance === utterance) {
         activeUtterance = null;
         setIsSpeaking(false);
+        showSpeechHelp();
       }
-      showSpeechHelp();
     };
 
     activeUtterance = utterance;

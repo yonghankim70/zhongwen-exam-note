@@ -1,4 +1,4 @@
-const CACHE_NAME = "zhongwen-exam-note-v6-tts-help";
+const CACHE_NAME = "zhongwen-exam-note-v7-quick-lock-speaker";
 const APP_SHELL = ["/", "/manifest.webmanifest", "/icon.svg"];
 
 self.addEventListener("install", (event) => {
