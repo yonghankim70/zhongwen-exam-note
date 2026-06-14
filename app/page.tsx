@@ -113,6 +113,7 @@ const brushPaddingY = 0.055;
 const cropStep = 0.04;
 
 let activeUtterance: SpeechSynthesisUtterance | null = null;
+let speechHelpShown = false;
 
 export default function Home() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -1065,7 +1066,7 @@ function SpeakButton({ text }: { text: string }) {
     };
   }, []);
 
-  function speak() {
+  async function speak() {
     if (
       typeof window === "undefined" ||
       !("speechSynthesis" in window) ||
@@ -1089,8 +1090,9 @@ function SpeakButton({ text }: { text: string }) {
     }
 
     synth.cancel();
+    synth.resume();
 
-    const latestVoices = synth.getVoices();
+    const latestVoices = await waitForSpeechVoices(synth);
     if (latestVoices.length) {
       setVoices(latestVoices);
     }
@@ -1100,8 +1102,16 @@ function SpeakButton({ text }: { text: string }) {
     utterance.rate = 0.82;
     utterance.pitch = 1;
     utterance.volume = 1;
-    utterance.voice = pickMandarinVoice(latestVoices.length ? latestVoices : voices);
-    utterance.onstart = () => setIsSpeaking(true);
+    const mandarinVoice = pickMandarinVoice(
+      latestVoices.length ? latestVoices : voices
+    );
+    let didStart = false;
+
+    utterance.voice = mandarinVoice;
+    utterance.onstart = () => {
+      didStart = true;
+      setIsSpeaking(true);
+    };
     utterance.onend = () => {
       if (activeUtterance === utterance) {
         activeUtterance = null;
@@ -1113,6 +1123,7 @@ function SpeakButton({ text }: { text: string }) {
         activeUtterance = null;
         setIsSpeaking(false);
       }
+      showSpeechHelp();
     };
 
     activeUtterance = utterance;
@@ -1124,6 +1135,14 @@ function SpeakButton({ text }: { text: string }) {
         synth.resume();
       }
     }, 120);
+
+    window.setTimeout(() => {
+      if (activeUtterance === utterance && !didStart && !synth.speaking) {
+        activeUtterance = null;
+        setIsSpeaking(false);
+        showSpeechHelp();
+      }
+    }, 1600);
   }
 
   return (
@@ -1149,5 +1168,41 @@ function pickMandarinVoice(voices: SpeechSynthesisVoice[]) {
     voices.find((voice) => /zh[-_]?CN|cmn[-_]?Hans[-_]?CN/i.test(voice.lang)) ??
     voices.find((voice) => /^zh/i.test(voice.lang)) ??
     null
+  );
+}
+
+function waitForSpeechVoices(synth: SpeechSynthesis) {
+  const voices = synth.getVoices();
+  if (voices.length) {
+    return Promise.resolve(voices);
+  }
+
+  return new Promise<SpeechSynthesisVoice[]>((resolve) => {
+    let finished = false;
+
+    const finish = () => {
+      if (finished) {
+        return;
+      }
+
+      finished = true;
+      window.clearTimeout(timer);
+      synth.removeEventListener("voiceschanged", finish);
+      resolve(synth.getVoices());
+    };
+
+    const timer = window.setTimeout(finish, 1200);
+    synth.addEventListener("voiceschanged", finish);
+  });
+}
+
+function showSpeechHelp() {
+  if (speechHelpShown || typeof window === "undefined") {
+    return;
+  }
+
+  speechHelpShown = true;
+  window.alert(
+    "휴대폰에서 중국어 음성이 켜지지 않았습니다.\n\n설정 > 일반 관리 > 글자 읽어주기 또는 텍스트 음성 변환에서 Google 음성 서비스를 선택하고, 중국어(중국/보통화) 음성을 설치해 주세요.\n\n그리고 휴대폰 미디어 볼륨도 확인해 주세요."
   );
 }
